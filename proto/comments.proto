@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package comments;
+
+service CommentsService {
+  rpc CreateComment (CreateCommentRequest) returns (CommentResponse);
+  rpc ListComments (ListCommentsRequest) returns (ListCommentsResponse);
+  rpc DeleteComment (DeleteCommentRequest) returns (DeleteCommentResponse);
+}
+
+message CreateCommentRequest {
+  string blog_id = 1;
+  string author_id = 2;
+  string content = 3;
+  string parent_comment_id = 4;
+}
+
+message ListCommentsRequest {
+  string blog_id = 1;
+  string parent_comment_id = 2;
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message DeleteCommentRequest {
+  string comment_id = 1;
+  string author_id = 2;
+}
+
+message DeleteCommentResponse {
+  bool success = 1;
+}
+
+message CommentResponse {
+  string comment_id = 1;
+  string blog_id = 2;
+  string author_id = 3;
+  string content = 4;
+  string parent_comment_id = 5;
+  string created_at = 6;
+}
+
+message ListCommentsResponse {
+  repeated CommentResponse comments = 1;
+  int32 total = 2;
+}
