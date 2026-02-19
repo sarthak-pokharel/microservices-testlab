@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: api-gateway
+    static_configs:
+      - targets: ['api-gateway:3000']
+
+  - job_name: auth-service
+    static_configs:
+      - targets: ['auth-service:9201']
+
+  - job_name: user-service
+    static_configs:
+      - targets: ['user-service:9202']
+
+  - job_name: blog-service
+    static_configs:
+      - targets: ['blog-service:9203']
+
+  - job_name: comment-service
+    static_configs:
+      - targets: ['comment-service:9204']
+
+  - job_name: email-service
+    static_configs:
+      - targets: ['email-service:9205']

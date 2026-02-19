@@ -1,0 +1,209 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    environment:
+      POSTGRES_USER: vlog
+      POSTGRES_PASSWORD: vlog_secret
+      POSTGRES_DB: postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sh:/docker-entrypoint-initdb.d/init.sh
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U vlog -d postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: apps/auth-service/Dockerfile
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://vlog:vlog_secret@postgres:5432/auth_db
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: change_me_access_secret
+      JWT_REFRESH_SECRET: change_me_refresh_secret
+      OTEL_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - '5001:5001'
+      - '9201:9201'
+
+  user-service:
+    build:
+      context: .
+      dockerfile: apps/user-service/Dockerfile
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://vlog:vlog_secret@postgres:5432/user_db
+      REDIS_URL: redis://redis:6379
+      OTEL_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - '5002:5002'
+      - '9202:9202'
+
+  blog-service:
+    build:
+      context: .
+      dockerfile: apps/blog-service/Dockerfile
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://vlog:vlog_secret@postgres:5432/blog_db
+      REDIS_URL: redis://redis:6379
+      OTEL_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - '5003:5003'
+      - '9203:9203'
+
+  comment-service:
+    build:
+      context: .
+      dockerfile: apps/comment-service/Dockerfile
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://vlog:vlog_secret@postgres:5432/comment_db
+      OTEL_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - '5004:5004'
+      - '9204:9204'
+
+  email-service:
+    build:
+      context: .
+      dockerfile: apps/email-service/Dockerfile
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      REDIS_URL: redis://redis:6379
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-SG.replace_me}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@example.com}
+      OTEL_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - '5005:5005'
+      - '9205:9205'
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    depends_on:
+      - auth-service
+      - user-service
+      - blog-service
+      - comment-service
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      AUTH_SERVICE_URL: auth-service:5001
+      USER_SERVICE_URL: user-service:5002
+      BLOG_SERVICE_URL: blog-service:5003
+      COMMENT_SERVICE_URL: comment-service:5004
+      OTEL_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - '3000:3000'
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    ports:
+      - '16686:16686'  # Jaeger UI
+      - '4318:4318'    # OTLP HTTP receiver
+
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    ports:
+      - '9090:9090'
+
+  grafana:
+    image: grafana/grafana:11.6.1
+    restart: unless-stopped
+    networks:
+      - vlog-net
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - '3001:3000'  # 3000 is taken by api-gateway
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  vlog-net:
+    driver: bridge
