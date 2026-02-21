@@ -1,0 +1,99 @@
+# k8s/infra/postgres.yaml
+#
+# StatefulSet vs Deployment: Postgres needs stable storage and a stable network
+# identity (pod name doesn't change on restarts). StatefulSet gives both.
+# A PersistentVolumeClaim (PVC) is the storage request — GKE auto-provisions
+# a Google Persistent Disk to back it.
+#
+# The init ConfigMap runs the same SQL as docker/postgres/init.sh to create
+# the four databases on first boot.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: vlogging-uat
+data:
+  init.sh: |
+    #!/bin/bash
+    set -e
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+      CREATE DATABASE auth_db;
+      CREATE DATABASE user_db;
+      CREATE DATABASE blog_db;
+      CREATE DATABASE comment_db;
+    EOSQL
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: vlogging-uat
+spec:
+  serviceName: postgres        # pods get DNS: postgres-0.postgres.vlogging-uat.svc.cluster.local
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: vlog
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vlogging-secrets
+                  key: POSTGRES_PASSWORD
+            # GKE persistent disks have a lost+found dir at the mount root.
+            # Postgres refuses to init in a non-empty directory, so we use a subdirectory.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ['pg_isready', '-U', 'vlog', '-d', 'postgres']
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: init
+          configMap:
+            name: postgres-init
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ['ReadWriteOnce']
+        resources:
+          requests:
+            storage: 10Gi   # GKE will provision a 10GB Persistent Disk
+---
+# ClusterIP Service — gives postgres a stable DNS name inside the cluster.
+# Services on ports other than 80/443 are internal-only unless you add
+# a LoadBalancer or Ingress in front. This one is intentionally internal.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: vlogging-uat
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

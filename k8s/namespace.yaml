@@ -1,0 +1,8 @@
+# k8s/namespace.yaml
+# Everything lives in the vlogging-uat namespace.
+# A namespace is just a logical boundary — it keeps UAT resources
+# isolated from anything else running in the same cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vlogging-uat
