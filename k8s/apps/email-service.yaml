@@ -1,0 +1,87 @@
+# k8s/apps/email-service.yaml
+#
+# Email service is a BullMQ worker — it picks jobs off the Redis queue.
+# It doesn't receive gRPC calls from api-gateway directly; api-gateway
+# enqueues jobs to Redis and email-service processes them.
+# gRPC port 5005 is used if other services call it directly in future.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email-service
+  namespace: vlogging-uat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: email-service
+  template:
+    metadata:
+      labels:
+        app: email-service
+    spec:
+      containers:
+        - name: email-service
+          image: sarthak8317/vlogging-email-service:uat
+          imagePullPolicy: Always
+          ports:
+            - name: grpc
+              containerPort: 5005
+            - name: metrics
+              containerPort: 9205
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vlogging-secrets
+                  key: REDIS_URL
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: vlogging-secrets
+                  key: SMTP_HOST
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: vlogging-secrets
+                  key: SMTP_PORT
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: vlogging-secrets
+                  key: SMTP_USER
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: vlogging-secrets
+                  key: SMTP_PASS
+            - name: EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: vlogging-secrets
+                  key: EMAIL_FROM
+            - name: OTEL_ENDPOINT
+              value: http://jaeger.vlogging-uat.svc.cluster.local:4318/v1/traces
+          readinessProbe:
+            tcpSocket:
+              port: 5005
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: email-service
+  namespace: vlogging-uat
+spec:
+  selector:
+    app: email-service
+  ports:
+    - name: grpc
+      port: 5005
+      targetPort: 5005
+    - name: metrics
+      port: 9205
+      targetPort: 9205
