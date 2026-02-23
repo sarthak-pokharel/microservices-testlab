@@ -1,0 +1,48 @@
+# k8s/ingress.yaml
+#
+# What is an Ingress?
+# An Ingress is a k8s resource that defines HTTP routing rules.
+# By itself it does nothing — it needs an Ingress Controller to act on it.
+# We use nginx-ingress-controller (installed via Helm in the setup steps).
+#
+# The nginx-ingress controller runs as a pod in your cluster and watches
+# for Ingress resources. When it finds this one, it configures nginx to
+# proxy traffic for the hostname below to the api-gateway Service.
+#
+# TLS / HTTPS:
+# The cert-manager annotation tells cert-manager (optional, install via Helm)
+# to automatically provision a Let's Encrypt TLS certificate.
+# If you don't want to set up cert-manager, remove the tls: block and the
+# annotation, and the Ingress will serve HTTP only.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vlogging-ingress
+  namespace: vlogging-uat
+  annotations:
+    # Increase body size limit for file uploads (default is 1m)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Optional: auto-provision Let's Encrypt TLS cert via cert-manager
+    # Remove this annotation if you're not installing cert-manager
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  # ingressClassName replaces the deprecated kubernetes.io/ingress.class annotation
+  # (required for nginx-ingress >= 1.0 / k8s >= 1.18)
+  ingressClassName: nginx
+  # Optional TLS block — remove if not using cert-manager
+  tls:
+    - hosts:
+        - uat-may1-2026.sarthakpokhrel.com.np
+      secretName: vlogging-uat-tls   # cert-manager stores the cert here
+  rules:
+    - host: uat-may1-2026.sarthakpokhrel.com.np
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 80
