@@ -1,0 +1,61 @@
+# k8s/observability/jaeger.yaml
+#
+# Using jaeger all-in-one: collector + query UI in one pod.
+# This is fine for UAT. In production you'd split into separate components
+# with a distributed backend (Cassandra/Elasticsearch).
+#
+# Ports:
+#   4318 — OTLP HTTP (our services send traces here)
+#   16686 — Jaeger UI (access via kubectl port-forward)
+#
+# We do NOT expose Jaeger via Ingress — it's internal observability only.
+# Access UI with: kubectl port-forward svc/jaeger 16686:16686 -n vlogging-uat
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: vlogging-uat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.57
+          ports:
+            - name: otlp-http
+              containerPort: 4318
+            - name: ui
+              containerPort: 16686
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 16686
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: vlogging-uat
+spec:
+  selector:
+    app: jaeger
+  ports:
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    - name: ui
+      port: 16686
+      targetPort: 16686

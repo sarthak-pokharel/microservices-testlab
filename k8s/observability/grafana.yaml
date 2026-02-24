@@ -1,0 +1,99 @@
+# k8s/observability/grafana.yaml
+#
+# Grafana is pre-configured via a ConfigMap (datasource provisioning).
+# This tells Grafana to auto-connect to Prometheus on first boot.
+# When you open Grafana you won't need to manually add the datasource.
+#
+# Default credentials: admin / admin (change on first login)
+#
+# Access with:
+#   kubectl port-forward svc/grafana 3001:3000 -n vlogging-uat
+# Then open http://localhost:3001
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: vlogging-uat
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        # Use the k8s service name — Grafana pod resolves this via cluster DNS
+        url: http://prometheus.vlogging-uat.svc.cluster.local:9090
+        isDefault: true
+        editable: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: vlogging-uat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate    # ReadWriteOnce PVC can only be mounted by one pod at a time
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        fsGroup: 472        # grafana runs as uid 472; fsGroup makes PVC writable
+        runAsUser: 472
+        runAsNonRoot: true
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.6.1
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: admin   # change this after first login in UAT
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: data
+              mountPath: /var/lib/grafana
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: data
+          persistentVolumeClaim:
+            claimName: grafana-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: vlogging-uat
+spec:
+  accessModes: ['ReadWriteOnce']
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: vlogging-uat
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000

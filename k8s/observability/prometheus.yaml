@@ -1,0 +1,128 @@
+# k8s/observability/prometheus.yaml
+#
+# A ConfigMap holds prometheus.yml — the scrape config.
+# In k8s, services are reachable by their short name inside the same namespace,
+# so "auth-service:9201" works. The full FQDN also works:
+# auth-service.vlogging-uat.svc.cluster.local:9201.
+#
+# Access Prometheus UI with:
+#   kubectl port-forward svc/prometheus 9090:9090 -n vlogging-uat
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: vlogging-uat
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+
+    scrape_configs:
+      - job_name: api-gateway
+        static_configs:
+          - targets: ['api-gateway.vlogging-uat.svc.cluster.local:80']
+            labels:
+              namespace: vlogging-uat
+
+      - job_name: auth-service
+        static_configs:
+          - targets: ['auth-service.vlogging-uat.svc.cluster.local:9201']
+            labels:
+              namespace: vlogging-uat
+
+      - job_name: user-service
+        static_configs:
+          - targets: ['user-service.vlogging-uat.svc.cluster.local:9202']
+            labels:
+              namespace: vlogging-uat
+
+      - job_name: blog-service
+        static_configs:
+          - targets: ['blog-service.vlogging-uat.svc.cluster.local:9203']
+            labels:
+              namespace: vlogging-uat
+
+      - job_name: comment-service
+        static_configs:
+          - targets: ['comment-service.vlogging-uat.svc.cluster.local:9204']
+            labels:
+              namespace: vlogging-uat
+
+      - job_name: email-service
+        static_configs:
+          - targets: ['email-service.vlogging-uat.svc.cluster.local:9205']
+            labels:
+              namespace: vlogging-uat
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: vlogging-uat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate    # ReadWriteOnce PVC can only be mounted by one pod at a time
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      securityContext:
+        fsGroup: 65534      # prometheus runs as nobody (65534); fsGroup makes PVC writable
+        runAsUser: 65534
+        runAsNonRoot: true
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.3.1
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=7d   # keep 7 days of data for UAT
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: prometheus-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: vlogging-uat
+spec:
+  accessModes: ['ReadWriteOnce']
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: vlogging-uat
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
