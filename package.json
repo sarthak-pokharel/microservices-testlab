@@ -5,7 +5,11 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
+    "turbo:build": "pnpm build:all && turbo run build",
+    "turbo:lint": "turbo run lint",
+    "turbo:test": "turbo run test",
     "db:clean": "docker exec vlogging-postgres-1 psql -U vlog -d postgres -c 'DROP DATABASE IF EXISTS auth_db' -c 'DROP DATABASE IF EXISTS user_db' -c 'DROP DATABASE IF EXISTS blog_db' -c 'DROP DATABASE IF EXISTS comment_db' && docker exec vlogging-postgres-1 psql -U vlog -d postgres -c 'CREATE DATABASE auth_db' -c 'CREATE DATABASE user_db' -c 'CREATE DATABASE blog_db' -c 'CREATE DATABASE comment_db'",
     "build:all": "nest build api-gateway && nest build auth-service && nest build user-service && nest build blog-service && nest build comment-service && nest build email-service",
     "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\"",
@@ -33,6 +37,7 @@
     "docker:push": "DOCKER_USER=${DOCKER_USER:-sarthak8317} TAG=${TAG:-uat} node scripts/docker-push.mjs"
   },
   "dependencies": {
+    "@vlogging/shared": "workspace:*",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.7.15",
     "@nestjs/bullmq": "^11.0.4",
@@ -98,6 +103,7 @@
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
+    "turbo": "^2.9.8",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
   },
